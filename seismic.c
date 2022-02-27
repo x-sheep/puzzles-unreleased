@@ -666,180 +666,149 @@ static int seismic_solve_game(game_state *state, int maxdiff)
 		break;
 	}
 	
-	if(seismic_validate_game(state) != STATUS_COMPLETE)
-		return -1;
-	
-	return diff;
+	switch(seismic_validate_game(state))
+	{
+		case STATUS_COMPLETE:
+			return diff;
+		case STATUS_UNFINISHED:
+			return -1;
+		default:
+			return -2;
+	}
 }
 
 static bool seismic_gen_numbers(game_state *state, random_state *rs)
 {
 	/* Fill a grid with numbers by randomly picking squares, then
-	 * placing the lowest possible number. */
+	 * placing any possible number that doesn't lead to a contradiction. */
 	
 	int w = state->w;
 	int h = state->h;
 	int s = w * h;
-	int i, j, k;
+	int i, j, k, l, areasize;
+	bool ret = true;
 	int *spaces = snewn(s, int);
+	int slots[9];
+	game_state *solved = dup_game(state);
 	
 	for(i = 0; i < s; i++)
 	{
-		state->marks[i] = FM_MARKS;
+		state->marks[i] = AREA_BITS(dsf_size(state->dsf, i));
 		spaces[i] = i;
 	}
 	
 	shuffle(spaces, s, sizeof(*spaces), rs);
 	
-	for(j = 0; j < s; j++)
+	for(j = 0; j < s && ret; j++)
 	{
 		i = spaces[j];
-		for(k = 1; k <= 9; k++)
+		areasize = dsf_size(state->dsf, i);
+
+		for(k = 0; k < areasize; k++) {
+			slots[k] = k + 1;
+		}
+
+		shuffle(slots, areasize, sizeof(int), rs);
+
+		for(l = 0; l < areasize; l++)
 		{
+			k = slots[l];
 			if(state->marks[i] & NUM_BIT(k))
 			{
-				seismic_place_number(state, i%w, i/w, k);
-				break;
+				memcpy(solved->grid, state->grid, w*h*sizeof(char));
+				solved->grid[i] = k;
+
+				if(seismic_solve_game(solved, DIFF_EASY) != -2)
+				{
+					seismic_place_number(state, i%w, i/w, k);
+					break;
+				}
 			}
 		}
-		if (k > 9)
-			return false;
-	}
-	
-	sfree(spaces);
-	
-	return true;
-}
-
-static bool tectonic_gen_numbers(game_state *state, random_state *rs)
-{
-	int w = state->w;
-	int h = state->h;
-	int s = w * h;
-	int i, j, k;
-	int spaces[5] = { 1, 2, 3, 4, 5 };
-	int counts[5] = { 0, 0, 0, 0, 0 };
-	for (i = 0; i < s; i++)
-	{
-		state->marks[i] = AREA_BITS(5);
-	}
-
-	/* Visit all grid spaces sequentially and place a random number. */
-	for (i = 0; i < s; i++)
-	{
-		shuffle(spaces, 5, sizeof(int), rs);
-		for (j = 0; j < 5; j++)
-		{
-			k = spaces[j];
-			if (state->marks[i] & NUM_BIT(k))
-			{
-				seismic_place_number(state, i%w, i/w, k);
-				counts[k - 1]++;
-				break;
-			}
-		}
-	}
-
-	/* Build a map of each number based on how often it appears in the grid. */
-	for (j = 0; j < 5; j++)
-	{
-		int imax = -1;
-		int cmax = -1;
-		for (k = 0; k < 5; k++)
-		{
-			if (counts[k] > cmax)
-			{
-				imax = k;
-				cmax = counts[k];
-			}
-		}
-
-		spaces[j] = imax + 1;
-		counts[imax] = -1;
-	}
-
-	/*
-	 * Translate the grid numbers based on the map.
-	 * The 1 must appear most often in the grid, followed by 2, then 3, etc. 
-	 */
-	for (i = 0; i < s; i++)
-		state->grid[i] = spaces[state->grid[i] - 1];
-
-	return true;
-}
-
-static bool seismic_gen_areas(game_state *state, random_state *rs)
-{
-	/* Examine borders between two areas in a random order,
-	 * and attempt to merge the areas whenever possible.
-	 * Returns false if an area turns out to miss a number. */
-	 
-	/* TODO: This is a dumb way of generating a region layout.
-	 * Think of a replacement for this algorithm */
-	
-	int w = state->w;
-	int h = state->h;
-	int x, y, i, i1, i2;
-	int hs = ((w-1)*h);
-	int ws = hs + (w*(h-1));
-	bool ret = true;
-	
-	int *cells = snewn(w*h, int);
-	int c, c1, c2;
-	int *spaces = snewn(ws, int);
-	
-	/* Initialize horizontal mergers */
-	i = 0;
-	for(y = 0; y < h; y++)
-	for(x = 0; x < w-1; x++)
-	{
-		spaces[i++] = y*w+x;
-	}
-	
-	/* Initialize vertical mergers */
-	for(y = 0; y < h-1; y++)
-	for(x = 0; x < w; x++)
-	{
-		spaces[i++] = (w*h) + y*w+x;
-	}
-	
-	/* Initialize region array */
-	for(i = 0; i < w*h; i++)
-	{
-		assert(i == dsf_canonify(state->dsf, i));
-		cells[i] = NUM_BIT(state->grid[i]);
-	}
-	
-	shuffle(spaces, ws, sizeof(*spaces), rs);
-	
-	for(i = 0; i < ws; i++)
-	{
-		i1 = spaces[i] % (w*h);
-		i2 = spaces[i] >= w*h ? i1 + w : i1 + 1;
-		
-		c1 = cells[dsf_canonify(state->dsf, i1)];
-		c2 = cells[dsf_canonify(state->dsf, i2)];
-		
-		/* If these two regions have numbers in common, they cannot merge */
-		if(c1 & c2)
-			continue;
-		
-		c = c1 | c2;
-		
-		dsf_merge(state->dsf, i1, i2);
-		
-		cells[dsf_canonify(state->dsf, i1)] |= c;
-	}
-	
-	for(i = 0; i < w*h; i++)
-	{
-		if(cells[dsf_canonify(state->dsf, i)] != AREA_BITS(dsf_size(state->dsf, i)))
+		if (l == areasize)
 			ret = false;
 	}
 	
 	sfree(spaces);
-	sfree(cells);
+	free_game(solved);
 	
+	return ret;
+}
+
+static bool is_adjacent_to_area(const game_state *state, int idx, int area) {
+	int w = state->w;
+	int h = state->h;
+	int i;
+
+	if((idx%w) > 0) {
+		i = idx - 1;
+		if(dsf_canonify(state->dsf, i) == area)
+			return true;
+	}
+	if((idx%w) < w-1) {
+		i = idx + 1;
+		if(dsf_canonify(state->dsf, i) == area)
+			return true;
+	}
+	if((idx/w) > 0) {
+		i = idx - w;
+		if(dsf_canonify(state->dsf, i) == area)
+			return true;
+	}
+	if((idx/w) < h-1) {
+		i = idx + w;
+		if(dsf_canonify(state->dsf, i) == area)
+			return true;
+	}
+
+	return false;
+}
+
+static bool seismic_gen_areas(game_state *state, random_state *rs)
+{
+	int w = state->w;
+	int h = state->h;
+	int roomupper = 2 * (int)sqrt(max(w, h));
+	int modeupper = state->mode == MODE_SEISMIC ? 9 : 5;
+	int maxsize = min(roomupper, modeupper);
+	int i, j, k;
+
+	bool roomed;
+	bool ret = true;
+	
+	int *cells = snewn(w*h, int);
+	int *rooms = snewn(w*h, int);
+	int roomcount = 0;
+
+	for(i = 0; i < w*h; i++) cells[i] = i;
+	shuffle(cells, w*h, sizeof(int), rs);
+
+	for(j = 0; j < w*h; j++) {
+		roomed = false;
+		i = cells[j];
+
+		shuffle(rooms, roomcount, sizeof(int), rs);
+
+		for(k = 0; k < roomcount; k++) {
+			if(is_adjacent_to_area(state, i, dsf_canonify(state->dsf, rooms[k])) &&
+				(dsf_size(state->dsf, rooms[k]) + random_upto(rs, maxsize) * 4) < maxsize * 5) {
+				dsf_merge(state->dsf, rooms[k], i);
+				roomed = true;
+			}
+		}
+
+		if(!roomed) {
+			rooms[roomcount++] = i;
+		}
+	}
+
+	for(i = 0; i < w*h; i++){
+		if(dsf_size(state->dsf, i) > modeupper)
+			ret = false;
+	}
+	
+	sfree(cells);
+	sfree(rooms);
 	return ret;
 }
 
@@ -891,7 +860,7 @@ static bool seismic_gen_diff(game_state *state, int diff)
 	
 	/* Check if puzzle is solvable */
 	solved = dup_game(state);
-	if(seismic_solve_game(solved, diff) == -1)
+	if(seismic_solve_game(solved, diff) < 0)
 		ret = false;
 	free_game(solved);
 	
@@ -900,7 +869,7 @@ static bool seismic_gen_diff(game_state *state, int diff)
 	
 	/* Check if puzzle is not solvable on lower difficulty */
 	solved = dup_game(state);
-	if(seismic_solve_game(solved, diff-1) != -1)
+	if(seismic_solve_game(solved, diff-1) >= 0)
 		ret = false;
 	free_game(solved);
 	
@@ -909,16 +878,14 @@ static bool seismic_gen_diff(game_state *state, int diff)
 
 static bool seismic_gen_puzzle(game_state *state, random_state *rs, int diff)
 {
-	if (state->mode == MODE_TECTONIC && !tectonic_gen_numbers(state, rs))
-		return false;
-	if(state->mode == MODE_SEISMIC && !seismic_gen_numbers(state, rs))
-		return false;
 	if(!seismic_gen_areas(state, rs))
+		return false;
+	if(!seismic_gen_numbers(state, rs))
 		return false;
 	if(!seismic_gen_clues(state, rs, diff))
 		return false;
-	if(!seismic_gen_diff(state, diff))
-		return false;
+	// if(!seismic_gen_diff(state, diff))
+	// 	return false;
 	
 	return true;
 }
