@@ -1743,7 +1743,7 @@ static char *new_game_desc(const game_params *params, random_state *rs,
 	enum { RUN_NONE, RUN_BLANK, RUN_WALL, RUN_NUMBER } runtype = RUN_NONE;
 	for(i = 0; i <= w*h; i++)
 	{
-		n = grid[i];
+		n = (i == w*h) ? -1 : grid[i];
 		if(IS_NUMBER_EDGE(n)) n = NUMBER_EDGE(n);
 
 		if(runtype == RUN_BLANK && (i == w*h || n != NUMBER_EMPTY))
@@ -3782,7 +3782,7 @@ static void game_redraw(drawing *dr, game_drawstate *ds,
 					FONT_VARIABLE, tilesize/2, ALIGN_HCENTRE|ALIGN_VCENTRE,
 					GET_BIT(state->immutable, i) ? COL_IMMUTABLE : 
 					state->grid[i] == NUMBER_EMPTY && ui->typing_cell != i ? COL_LOWLIGHT :
-					n <= state->last && positions[n] == CELL_MULTIPLE && ui->typing_cell != i ? COL_ERROR :
+					n >= 0 && n <= state->last && positions[n] == CELL_MULTIPLE && ui->typing_cell != i ? COL_ERROR :
 					COL_BORDER, buf);
 			
 			if(ds->path[i] & FLAG_ERROR)
