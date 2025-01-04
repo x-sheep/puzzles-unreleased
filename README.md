@@ -40,12 +40,12 @@ Click on a puzzle to read a detailed description.
 </tr>
 <tr>
 <td align="center" width="236"><b><a href="https://github.com/x-sheep/puzzles-unreleased/blob/master/docs/sticks.md">Sticks</a></b><br/>Fill in the grid with horizontal and vertical line segments.</td>
-<td></td>
+<td align="center" width="236"><b><a href="https://github.com/x-sheep/puzzles-unreleased/blob/master/docs/subsets.md">Subsets</a></b><br/>Place each set once, in accordance with the subset clues.</td>
 <td></td>
 </tr>
 <tr>
 <td align="center" width="236"><a href="https://github.com/x-sheep/puzzles-unreleased/blob/master/docs/sticks.md"><img src="https://raw.githubusercontent.com/x-sheep/puzzles-unreleased/master/docs/img/sticks.png"></a></td>
-<td></td>
+<td align="center" width="236"><a href="https://github.com/x-sheep/puzzles-unreleased/blob/master/docs/subsets.md"><img src="https://raw.githubusercontent.com/x-sheep/puzzles-unreleased/master/docs/img/subsets.png"></a></td>
 <td></td>
 </tr>
 </table>
@@ -74,6 +74,6 @@ Any bugfixes/contributions/suggestions welcome!
 
 ## LICENCE
 
-Copyright (c) 2011-2021 Lennard Sprong
+Copyright (c) 2011-2025 Lennard Sprong
 
 Based on Simon Tatham's Portable Puzzle Collection. [MIT Licence](./LICENCE)
