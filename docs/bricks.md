@@ -6,7 +6,7 @@ Objective of the game: Shade several cells in the hexagonal grid
 while following these rules:
 1. Each shaded cell must have at least one shaded cell below it
    (unless it's on the bottom row).
-2. There can not be 3 or more shaded cells in a horizontal row.
+2. There can't be 3 or more consecutive shaded cells in a horizontal line.
 3. A number indicates the amount of shaded cells around it.
 4. Cells with numbers cannot be shaded.
 
