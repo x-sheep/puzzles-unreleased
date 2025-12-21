@@ -77,8 +77,8 @@ static const struct
     {F_ADJ_LEFT, F_ADJ_RIGHT, -1, 0, '<', 'L'}};
 
 /* TODO: When other sizes are supported, read n instead of returning a constant */
-#define CELL_WIDTH(n) (2)
-#define CELL_HEIGHT(n) (2)
+#define CELL_WIDTH(n) ((void)(n), 2)
+#define CELL_HEIGHT(n) ((void)(n), 2)
 
 struct game_params
 {
@@ -590,7 +590,7 @@ static void subsets_cube_single_count(const game_state *state, const int *counts
 
 static int subsets_solve_apply_arrows(game_state *state)
 {
-    const int w = state->w, h = state->h, n = state->n;
+    const int w = state->w, h = state->h;
     int x, y, d, i1, i2, prev;
     int ret = 0;
 
@@ -877,7 +877,7 @@ static char *new_game_desc(const game_params *params, random_state *rs,
     game_state *state = blank_game(params), *solved;
     const int n = state->n, n2 = 1 << n, w = state->w, h = state->h;
     int *spaces = snewn(w * h, int);
-    int i, x, y, i2, value, d;
+    int i, x, y, i2, d;
     char *ret, *p;
 
     for (i = 0; i < n2; i++)
@@ -914,7 +914,6 @@ static char *new_game_desc(const game_params *params, random_state *rs,
     for (i2 = 0; i2 < w * h; i2++)
     {
         i = spaces[i2];
-        value = state->known[i];
 
         state->immutable[i] = false;
 
@@ -1268,7 +1267,7 @@ static game_drawstate *game_new_drawstate(drawing *dr, const game_state *state)
     ds->counts = snewn(s, int);
     ds->oldcounts = snewn(s, int);
     ds->flags = snewn(s, unsigned int);
-    ds->oldflags = snewn(s, int);
+    ds->oldflags = snewn(s, unsigned int);
     ds->oldknown = snewn(s, unsigned int);
     ds->oldmask = snewn(s, unsigned int);
 
