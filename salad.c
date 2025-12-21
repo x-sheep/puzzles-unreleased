@@ -773,7 +773,7 @@ static char *game_text_format(const game_state *state)
 	return ret;
 }
 
-static game_state *load_game(const game_params *params, const char *desc, char **fail)
+static game_state *load_game(const game_params *params, const char *desc, const char **fail)
 {
 	int o = params->order;
 	int nums = params->nums;
@@ -906,7 +906,7 @@ static game_state *load_game(const game_params *params, const char *desc, char *
 
 static const char *validate_desc(const game_params *params, const char *desc)
 {
-	char *fail = NULL;
+	const char *fail = NULL;
 	game_state *state = load_game(params, desc, &fail);
 	if(state)
 		free_game(state);
@@ -1118,7 +1118,7 @@ static key_label *game_request_keys(const game_params *params, int *nkeys)
 
 static game_state *new_game(midend *me, const game_params *params, const char *desc)
 {
-	char *fail;
+	const char *fail;
 	
 	game_state *state = load_game(params, desc, &fail);
 	assert(state);
@@ -2628,7 +2628,7 @@ int main(int argc, char *argv[])
 		if(!params) params = default_params();
 		char *desc_gen = NULL;
 		char *aux = NULL;
-		char *fail = NULL;
+		const char *fail = NULL;
 		char *fmt = NULL;
 		printf("Generating puzzle with parameters %s\n", encode_params(params, true));
 		
