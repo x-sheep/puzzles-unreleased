@@ -936,7 +936,7 @@ static bool crossing_gen_walls_checkdsf(int w, int h, char *walls)
 {
 	DSF *dsf = dsf_new(w*h);
 	int i, s, i1, i2, x, y;
-	int maxsize, maxcell, total;
+	int maxsize, total;
 	
 	/* Horizontal merger */
 	for(y = 0; y < h; y++)
@@ -964,7 +964,6 @@ static bool crossing_gen_walls_checkdsf(int w, int h, char *walls)
 	
 	total = 0;
 	maxsize = -1;
-	maxcell = -1;
 	for(i = 0; i < w*h; i++)
 	{
 		if(walls[i] != GEN_CELL)
@@ -975,7 +974,7 @@ static bool crossing_gen_walls_checkdsf(int w, int h, char *walls)
 		if(s > maxsize)
 		{
 			maxsize = s;
-			maxcell = dsf_canonify(dsf, i);
+			dsf_canonify(dsf, i);
 		}
 	}
 	dsf_free(dsf);
