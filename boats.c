@@ -2809,7 +2809,7 @@ static const char *validate_params(const game_params *params, bool full)
 	int *spaces;
 	struct boats_run *runs;
 	game_state *state;
-	char *ret = NULL;
+	const char *ret = NULL;
 	
 	if(full && params->diff >= DIFFCOUNT)
 		return "Unknown difficulty level";
