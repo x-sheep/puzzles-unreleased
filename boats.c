@@ -3149,6 +3149,8 @@ struct game_drawstate {
 #define FLEET_SIZE (0.75F)
 /* Space between two boats */
 #define FLEET_MARGIN (0.25F)
+/* Thickness of stripe through placed boats */
+#define STRIPE_SIZE (2)
 
 #define FROMCOORD(x) ( ((x) - BORDER) / ds->tilesize ) 
 
@@ -3637,7 +3639,7 @@ static int boats_draw_fleet(drawing *dr, int w, int h, int fleet,
 	 */
 	
 	int i, j, k, y, bgcol;
-	float fx, ofx, nfx;
+	float fx, ofx, nfx, fw, cy, stripeh, slope;
 	char ship;
 
 #define FX_COORD(fx) (BORDER + ((fx)-FLEET_X) * tilesize)
@@ -3645,9 +3647,10 @@ static int boats_draw_fleet(drawing *dr, int w, int h, int fleet,
 	
 	fx = FLEET_X;
 	y = 0;
+	slope = (FLEET_SIZE * tilesize - STRIPE_SIZE*2)
+		/ (fleet * FLEET_SIZE * tilesize - STRIPE_SIZE*2);
 	for(i = 0; i < fleet; i++)
 	{
-		float fw;
 		fw = fleetdata[i] * (((i+1) * FLEET_SIZE) + FLEET_MARGIN);
 		
 		/* If the next batch of boats doesn't fit, move to the next line */
@@ -3702,10 +3705,13 @@ static int boats_draw_fleet(drawing *dr, int w, int h, int fleet,
 			if(print == -1 && fleetcount && j < fleetcount[i])
 			{
 				bgcol = (fleetdata[i] >= fleetcount[i] ? COL_SHIP_FLEET_STRIPE : COL_COUNT_ERROR);
-				
-				draw_thick_line(dr, 2,
-					FX_COORD(ofx) + 2, FY_COORD(y) + FLEET_SIZE * tilesize - 2,
-					FX_COORD(fx) - 2, FY_COORD(y) + 2, bgcol);
+				/* Use same slope stripes for all boat sizes */
+				cy = FY_COORD(y) + (FLEET_SIZE * tilesize / 2);
+				stripeh = slope * ((i+1) * FLEET_SIZE * tilesize - STRIPE_SIZE*2);
+
+				draw_thick_line(dr, STRIPE_SIZE,
+					FX_COORD(ofx) + STRIPE_SIZE, cy + stripeh/2,
+					FX_COORD(fx) - STRIPE_SIZE, cy - stripeh/2, bgcol);
 			}
 			
 			fx += FLEET_MARGIN;
