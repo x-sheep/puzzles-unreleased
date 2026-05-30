@@ -57,6 +57,11 @@ enum {
 	NCOLOURS
 };
 
+enum {
+    PREF_PENCIL_KEEP_HIGHLIGHT,
+    N_PREF_ITEMS
+};
+
 #define DIFFLIST(A) \
 	A(EASY,Normal,salad_solver_easy, e) \
 	A(HARD,Extreme,NULL,x)
@@ -1425,6 +1430,8 @@ struct game_ui {
 	bool hpencil;
 	bool hshow;
 	bool hcursor;
+	/* UI option for keeping cursor visible when typing mark */
+	bool pencil_keep_highlight;
 };
 
 static game_ui *new_ui(const game_state *state)
@@ -1432,7 +1439,10 @@ static game_ui *new_ui(const game_state *state)
 	game_ui *ret = snew(game_ui);
 	
 	ret->hx = ret->hy = 0;
-	ret->hpencil = ret->hshow = ret->hcursor = false;
+	ret->hcursor = ret->hshow = getenv_bool("PUZZLES_SHOW_CURSOR", false);
+	ret->hpencil = false;
+	ret->pencil_keep_highlight = false;
+	
 	return ret;
 }
 
@@ -1448,6 +1458,29 @@ static char *encode_ui(const game_ui *ui)
 
 static void decode_ui(game_ui *ui, const char *encoding, const game_state *state)
 {
+}
+
+static config_item *get_prefs(game_ui *ui)
+{
+    config_item *ret;
+
+    ret = snewn(N_PREF_ITEMS+1, config_item);
+
+    ret[PREF_PENCIL_KEEP_HIGHLIGHT].name =
+        "Keep mouse highlight after changing a pencil mark";
+    ret[PREF_PENCIL_KEEP_HIGHLIGHT].kw = "pencil-keep-highlight";
+    ret[PREF_PENCIL_KEEP_HIGHLIGHT].type = C_BOOLEAN;
+    ret[PREF_PENCIL_KEEP_HIGHLIGHT].u.boolean.bval = ui->pencil_keep_highlight;
+
+    ret[N_PREF_ITEMS].name = NULL;
+    ret[N_PREF_ITEMS].type = C_END;
+
+    return ret;
+}
+
+static void set_prefs(game_ui *ui, const config_item *cfg)
+{
+    ui->pencil_keep_highlight = cfg[PREF_PENCIL_KEEP_HIGHLIGHT].u.boolean.bval;
 }
 
 static void game_changed_state(game_ui *ui, const game_state *oldstate,
@@ -1606,7 +1639,7 @@ static char *interpret_move(const game_state *state, game_ui *ui, const game_dra
 				ui->hx, ui->hy, (char)(d ? d + '0' : '-'));
 			
 			/* When not in keyboard and pencil mode, hide cursor */
-			if (!ui->hcursor && !ui->hpencil)
+			if (!ui->hcursor && !(ui->hpencil && ui->pencil_keep_highlight))
 				ui->hshow = false;
 					
 			return dupstr(buf);
@@ -2492,7 +2525,7 @@ const struct game thegame = {
 	free_game,
 	true, solve_game,
 	true, game_can_format_as_text_now, game_text_format,
-    NULL, NULL, /* get_prefs, set_prefs */
+    get_prefs, set_prefs,
 	new_ui,
 	free_ui,
 	encode_ui,
