@@ -14,7 +14,9 @@
  * The keyboard can also be used. Move the cursor with the arrow keys,
  * and press Enter followed with an arrow key to place an arrow. Use spacebar
  * to add pencil marks. Alternatively, use the arrows on the numpad to enter
- * arrows directly.
+ * arrows directly. Press 'M' to fill in all pencil marks, or 'H' to do the
+ * same but omit ones pointing of an edge, into an opposing arrow, or 
+ * duplicating arrows already in the area.
  */
 
 /*
@@ -1559,6 +1561,62 @@ struct game_drawstate {
 
 #define FROMCOORD(x) ( ((x)-(ds->tilesize/2)) / ds->tilesize )
 
+static cell *rome_calculate_hints(const game_state *state)
+{
+	int w = state->w;
+	int h = state->h;
+	int x, y, i;
+	cell *hmarks = snewn(w*h, cell);
+	cell *region_arrows = snewn(w*h, cell);
+	
+	memset(region_arrows, EMPTY, w*h*sizeof(cell));
+	memset(hmarks, EMPTY, w*h*sizeof(cell));
+	
+	for(i = 0; i < w*h; i++)
+	{
+		if(state->grid[i] != EMPTY)
+		{
+			int c = dsf_canonify(state->dsf, i);
+			region_arrows[c] |= (state->grid[i] & FM_ARROWMASK);
+		}
+	}
+
+	/* Calculate all but "obvious" marks */
+	for(y = 0; y < h; y++)
+	for(x = 0; x < w; x++)
+	{
+		i = y*w+x;
+		if(state->grid[i] == EMPTY)
+		{
+			cell mark = FM_ARROWMASK;
+			
+			/* Remove marks pointing off grid */
+			if(y == 0) mark &= ~FM_UP;
+			if(y == h-1) mark &= ~FM_DOWN;
+			if(x == 0) mark &= ~FM_LEFT;
+			if(x == w-1) mark &= ~FM_RIGHT;
+
+			/* Remove marks duplicating arrows in region */
+			mark &= ~region_arrows[dsf_canonify(state->dsf, i)];
+			
+			/* Remove marks pointing directly at opposing arrow */
+			if(y > 0 && (state->grid[(y-1)*w+x] & FM_DOWN))
+				mark &= ~FM_UP;
+			if(y < h-1 && (state->grid[(y+1)*w+x] & FM_UP))
+				mark &= ~FM_DOWN;
+			if(x > 0 && (state->grid[y*w+(x-1)] & FM_RIGHT))
+				mark &= ~FM_LEFT;
+			if(x < w-1 && (state->grid[y*w+(x+1)] & FM_LEFT))
+				mark &= ~FM_RIGHT;
+			
+			hmarks[i] = mark;
+		}
+	}
+	
+	sfree(region_arrows);
+	return hmarks;
+}
+
 static char *interpret_move(const game_state *state, game_ui *ui, const game_drawstate *ds,
 				int mx, int my, int button)
 {
@@ -1724,6 +1782,45 @@ static char *interpret_move(const game_state *state, game_ui *ui, const game_dra
 		}
 	}
 	
+	if(button == 'M' || button == 'm')
+	{
+		int i;
+		bool found = false;
+		
+		for(i = 0; i < w*h; i++)
+		{
+			if(state->grid[i] == EMPTY && state->marks[i] != FM_ARROWMASK)
+			{
+				found = true;
+				break;
+			}
+		}
+		
+		if(found)
+			return dupstr("M");
+	}
+	
+	if(button == 'H' || button == 'h')
+	{
+		int i;
+		bool found = false;
+		cell *hmarks = rome_calculate_hints(state);
+		
+		for(i = 0; i < w*h; i++)
+		{
+			if(state->grid[i] == EMPTY && state->marks[i] != hmarks[i])
+			{
+				found = true;
+				break;
+			}
+		}
+		
+		sfree(hmarks);
+		
+		if(found)
+			return dupstr("H");
+	}
+	
 	return NULL;
 }
 
@@ -1829,6 +1926,32 @@ static game_state *execute_move(const game_state *oldstate, const char *move)
 		
 		state->completed = (rome_validate_game(state, true, NULL, NULL) == STATUS_COMPLETE);
 		state->cheated = state->completed;
+		return state;
+	}
+	
+	if(move[0] == 'M')
+	{
+		int i;
+		state = dup_game(oldstate);
+		for(i = 0; i < w*h; i++)
+		{
+			if(state->grid[i] == EMPTY)
+				state->marks[i] = FM_ARROWMASK;
+		}
+		return state;
+	}
+	
+	if(move[0] == 'H')
+	{
+		int i;
+		cell *hmarks = rome_calculate_hints(oldstate);
+		state = dup_game(oldstate);
+		for(i = 0; i < w*h; i++)
+		{
+			if(state->grid[i] == EMPTY)
+				state->marks[i] = hmarks[i];
+		}
+		sfree(hmarks);
 		return state;
 	}
 	
