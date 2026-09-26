@@ -3490,7 +3490,7 @@ static game_drawstate *game_new_drawstate(drawing *dr, const game_state *state)
 	memset(ds->gridfs, 0, w*h * sizeof(int));
 	memset(ds->oldgridfs, 0, w*h * sizeof(int));
 	memset(ds->oldfleetcount, 0, fleet * sizeof(int));
-	memset(ds->oldborder, 0, w + h * sizeof(int));
+	memset(ds->oldborder, 0, (w + h) * sizeof(int));
 
 	return ds;
 }
