@@ -20,7 +20,9 @@ Left-click to place a boat segment in the grid. Unknown boat segments are repres
 
 Right-click to place water, to indicate that a boat cannot be placed here.
 
-To play with a keyboard, use the arrow keys to move the cursor. Press Enter to place a boat segment, and press Space to place water.
+To play with a keyboard, use the arrow keys to move the cursor. Press Enter to place a boat segment, and press Space to place water. Or to quickly fill multiple squares, hold Ctrl or Shift along with the arrow keys to place boat segments or water, respectively.
+
+Left-clicking a number will mark it as done (grey it out), or unmark it if it is already marked. On a keyboard, press the 'X' or 'Y' keys to mark the numbers for the cursor's row or column.
 
 ## Boats parameters
 

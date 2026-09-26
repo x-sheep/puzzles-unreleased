@@ -64,6 +64,7 @@ enum {
 	COL_COUNT_ERROR,
 	COL_COLLISION_ERROR,
 	COL_COLLISION_TEXT,
+	COL_DONE,
 	NCOLOURS
 };
 
@@ -109,6 +110,7 @@ struct game_state {
 	
 	/* play data */
 	char *grid;
+	bool *borderclues_done;
 	bool completed, cheated;
 };
 
@@ -389,7 +391,9 @@ static game_state *blank_game(int w, int h, int f, int *fleetdata)
 	ret->gridclues = snewn(w*h, char);
 	ret->grid = snewn(w*h, char);
 	ret->borderclues = snewn(w+h, int);
-	
+	ret->borderclues_done = snewn(w+h, bool);
+	memset(ret->borderclues_done, 0, (w+h)*sizeof(bool));
+
 	ret->fleetdata = snewn(f, int);
 	memcpy(ret->fleetdata, fleetdata, f * sizeof(int));
 	
@@ -546,6 +550,7 @@ static game_state *dup_game(const game_state *state)
 	memcpy(ret->gridclues, state->gridclues, w*h*sizeof(char));
 	memcpy(ret->grid, state->grid, w*h*sizeof(char));
 	memcpy(ret->borderclues, state->borderclues, (w+h)*sizeof(int));
+	memcpy(ret->borderclues_done, state->borderclues_done, (w+h)*sizeof(bool));
 	
 	ret->completed = state->completed;
 	ret->cheated = state->cheated;
@@ -557,6 +562,7 @@ static void free_game(game_state *state)
 {
 	sfree(state->gridclues);
 	sfree(state->borderclues);
+	sfree(state->borderclues_done);
 	
 	sfree(state->grid);
 	sfree(state->fleetdata);
@@ -653,7 +659,12 @@ static char *game_text_format(const game_state *state)
 	return ret;
 }
 
-enum { STATUS_COMPLETE, STATUS_INCOMPLETE, STATUS_INVALID };
+enum {
+	STATUS_COMPLETE, 
+	STATUS_INCOMPLETE, 
+	STATUS_INVALID, 
+	STATUS_DONE, /* Marked done by user (border clue only) */
+};
 
 /* ******************** *
  * Validation and Tools *
@@ -3083,8 +3094,8 @@ struct game_ui {
 	int cx, cy;
 	bool cursor;
 	
+	bool is_dragging;
 	char drag_from, drag_to;
-	bool drag_ok;
 	int dsx, dex, dsy, dey;
 };
 
@@ -3092,12 +3103,12 @@ static game_ui *new_ui(const game_state *state)
 {
 	game_ui *ret = snew(game_ui);
 	
+	ret->is_dragging = false;
 	ret->drag_from = 0;
 	ret->drag_to = 0;
 	ret->dsx = ret->dex = ret->dsy = ret->dey = -1;
 	ret->cx = ret->cy = 0;
 	ret->cursor = false;
-	ret->drag_ok = false;
 	
 	return ret;
 }
@@ -3181,6 +3192,28 @@ static bool boats_validate_move(const game_state *state, int sx, int sy, int ex,
 	return false;
 }
 
+static int borderclue_index(const game_state *state, int x, int y)
+{
+	int w = state->w;
+	int h = state->h;
+
+	if (y == h && x >= 0 && x < w)
+		return x;
+	if (x == w && y >= 0 && y < h)
+		return y + w;
+
+	return -1;
+}
+
+static bool is_borderclue(const game_state *state, int x, int y)
+{
+	int idx = borderclue_index(state, x, y);
+	if (idx != -1 && state->borderclues[idx] != NO_CLUE)
+		return true;
+
+	return false;
+}
+
 static char *interpret_move(const game_state *state, game_ui *ui, const game_drawstate *ds,
 				int ox, int oy, int button)
 {
@@ -3195,15 +3228,20 @@ static char *interpret_move(const game_state *state, game_ui *ui, const game_dra
 	 * Since users will often want to fill an entire line, increase
 	 * the click target around the edges.
 	 */
-	if(gx == w) gx = w-1;
-	if(gy == h) gy = h-1;
+	if (gx >= -1 && gx <= w + 1 && gy >= -1 && gy <= h + 1)
+	{
+		gx = min(max(gx, 0), w);
+		gy = min(max(gy, 0), h);
+	}
 	
 	if(button == LEFT_BUTTON || button == MIDDLE_BUTTON || button == RIGHT_BUTTON)
 	{
-		if(gx >= 0 && gy >= 0 && gx < w && gy < h)
+		if (gx >= 0 && gy >= 0 && gx <= w && gy <= h)
 		{
-			from = IS_SHIP(state->grid[gy*w+gx]) ? 'B' : 
-				state->grid[gy*w+gx] == WATER ? 'W' : '-';
+			int sx = min(gx, w - 1);
+			int sy = min(gy, h - 1);
+			from = IS_SHIP(state->grid[sy*w+sx]) ? 'B' :
+				state->grid[sy*w+sx] == WATER ? 'W' : '-';
 			to = '-';
 			
 			if(button == LEFT_BUTTON)
@@ -3218,57 +3256,77 @@ static char *interpret_move(const game_state *state, game_ui *ui, const game_dra
 			
 			ui->drag_from = from;
 			ui->drag_to = to;
-			ui->drag_ok = true;
+			ui->is_dragging = true;
 			ui->dsx = ui->dex = gx;
 			ui->dsy = ui->dey = gy;
 			ui->cursor = false;
 			
 			return MOVE_UI_UPDATE;
 		}
+		return MOVE_UNUSED;
 	}
 	
-	if ((IS_MOUSE_DRAG(button) || IS_MOUSE_RELEASE(button)) &&
-		ui->drag_to != 0)
+	if ((IS_MOUSE_DRAG(button) || IS_MOUSE_RELEASE(button)) && ui->is_dragging)
 	{
-		if (gx < 0 || gy < 0 || gx >= w || gy >= h)
-            ui->drag_ok = false;
-		else
+		if ((ui->dsx == w && gx == w) || (ui->dsy == h && gy == h))
 		{
+			/* In border clues area. */
+			ui->dex = gx;
+			ui->dey = gy;
+		}
+		else if (gx >= 0 && gy >= 0 && gx <= w && gy <= h)
+		{
+			int cx = min(gx, w - 1);
+			int cy = min(gy, h - 1);
+			
 			/*
-             * Drags are limited to one row or column. Hence, we
-             * work out which coordinate is closer to the drag
-             * start, and move it _to_ the drag start.
-             */
-            if (abs(gx - ui->dsx) < abs(gy - ui->dsy))
-                gx = ui->dsx;
-            else
-                gy = ui->dsy;
+			 * Drags are limited to one row or column. Hence, we
+			 * work out which coordinate is closer to the drag
+			 * start, and move it _to_ the drag start.
+			 */
+			if (abs(cx - ui->dsx) < abs(cy - ui->dsy))
+				cx = ui->dsx;
+			else
+				cy = ui->dsy;
 
-            ui->dex = gx;
-            ui->dey = gy;
-
-            ui->drag_ok = true;
+			ui->dex = cx;
+			ui->dey = cy;
+		}
+		else {
+			ui->dex = ui->dey = -1;
 		}
 		
-		if(IS_MOUSE_RELEASE(button) && ui->drag_ok)
+		if (IS_MOUSE_RELEASE(button))
 		{
-			int xmin, xmax, ymin, ymax;
-			
+			int dsx = ui->dsx, dsy = ui->dsy;
+			int dex = ui->dex, dey = ui->dey;
 			from = ui->drag_from;
 			to = ui->drag_to;
 			
-			xmin = min(ui->dsx, ui->dex);
-			xmax = max(ui->dsx, ui->dex);
-			ymin = min(ui->dsy, ui->dey);
-			ymax = max(ui->dsy, ui->dey);
+			ui->is_dragging = false;
+			ui->drag_from = 0;
+			ui->drag_to = 0;
+			ui->dsx = ui->dex = ui->dsy = ui->dey = -1;
 			
-			ui->drag_ok = false;
-			
-			if(boats_validate_move(state, xmin, ymin, xmax, ymax, from, to))
+			if (button == LEFT_RELEASE && gx == dsx && gy == dsy && is_borderclue(state, dsx, dsy))
 			{
-				sprintf(buf, "P%d,%d,%d,%d,%c,%c", xmin, ymin, xmax, ymax, from, to);
-					
+				sprintf(buf, "D%d,%d", dsx, dsy);
 				return dupstr(buf);
+			}
+			if (dex >= 0 && dex < w && dey >= 0 && dey < h)
+			{
+				int sx = min(dsx, w - 1);
+				int sy = min(dsy, h - 1);
+				int xmin = min(sx, dex);
+				int xmax = max(sx, dex);
+				int ymin = min(sy, dey);
+				int ymax = max(sy, dey);
+				
+				if(boats_validate_move(state, xmin, ymin, xmax, ymax, from, to))
+				{
+					sprintf(buf, "P%d,%d,%d,%d,%c,%c", xmin, ymin, xmax, ymax, from, to);
+					return dupstr(buf);
+				}
 			}
 		}
 		return MOVE_UI_UPDATE;
@@ -3319,9 +3377,30 @@ static char *interpret_move(const game_state *state, game_ui *ui, const game_dra
 			sprintf(buf, "P%d,%d,%d,%d,%c,%c", gx, gy, gx, gy, from, to);
 			return dupstr(buf);
 		}
+		return MOVE_NO_EFFECT;
+	}
+
+	if(ui->cursor && (button == 'x' || button == 'X'))
+	{
+		if(is_borderclue(state, w, ui->cy))
+		{
+			sprintf(buf, "D%d,%d", w, ui->cy);
+			return dupstr(buf);
+		}
+		return MOVE_NO_EFFECT;
+	}
+
+	if(ui->cursor && (button == 'y' || button == 'Y'))
+	{
+		if(is_borderclue(state, ui->cx, h))
+		{
+			sprintf(buf, "D%d,%d", ui->cx, h);
+			return dupstr(buf);
+		}
+		return MOVE_NO_EFFECT;
 	}
 	
-	return NULL;
+	return MOVE_UNUSED;
 }
 
 static game_state *execute_move(const game_state *state, const char *move)
@@ -3360,6 +3439,16 @@ static game_state *execute_move(const game_state *state, const char *move)
 		return ret;
 	}
 	
+	else if (move[0] == 'D' && sscanf(move+1, "%d,%d", &x, &y) == 2)
+	{
+		int index = borderclue_index(state, x, y);
+		if (index == -1)
+			return NULL;
+		ret = dup_game(state);
+		ret->borderclues_done[index] = !ret->borderclues_done[index];
+		return ret;
+	}
+
 	else if(move[0] == 'S')
 	{
 		const char *p;
@@ -3460,6 +3549,10 @@ static float *game_colours(frontend *fe, int *ncolours)
 	ret[COL_COLLISION_TEXT * 3 + 0] = 1.0F;
     ret[COL_COLLISION_TEXT * 3 + 1] = 1.0F;
     ret[COL_COLLISION_TEXT * 3 + 2] = 1.0F;
+
+	ret[COL_DONE * 3 + 0] = ret[COL_BACKGROUND * 3 + 0] / 1.5F;
+	ret[COL_DONE * 3 + 1] = ret[COL_BACKGROUND * 3 + 1] / 1.5F;
+	ret[COL_DONE * 3 + 2] = ret[COL_BACKGROUND * 3 + 2] / 1.5F;
 
 	*ncolours = NCOLOURS;
 	return ret;
@@ -3717,14 +3810,28 @@ static void game_redraw(drawing *dr, game_drawstate *ds, const game_state *oldst
 	int tilesize = ds->tilesize;
 	int w = state->w;
 	int h = state->h;
-	int x, y, tx, ty, bgcol;
-	int xmin = min(ui->dsx, ui->dex);
-	int xmax = max(ui->dsx, ui->dex);
-	int ymin = min(ui->dsy, ui->dey);
-	int ymax = max(ui->dsy, ui->dey);
+	int x, y, tx, ty, i, bgcol;
+	bool is_drag = false;
+	int xmin = 0, xmax = 0, ymin = 0, ymax = 0;
+	int drag_bci = -1;
 	char ship;
 	bool redraw = ds->redraw;
 	bool flash = false;
+	
+	if (ui->is_dragging && ui->dex >= 0 && ui->dex < w && ui->dey >= 0 && ui->dey < h)
+	{
+		int sx = min(ui->dsx, w - 1);
+		int sy = min(ui->dsy, h - 1);
+		is_drag = true;
+		xmin = min(sx, ui->dex);
+		xmax = max(sx, ui->dex);
+		ymin = min(sy, ui->dey);
+		ymax = max(sy, ui->dey);
+	}
+	if (ui->is_dragging && ui->dex == ui->dsx && ui->dey == ui->dsy)
+	{
+		drag_bci = borderclue_index(state, ui->dex, ui->dey);
+	}
 	
 	if(flashtime > 0)
 		flash = (int)(flashtime/FLASH_FRAME) & 1;
@@ -3736,6 +3843,13 @@ static void game_redraw(drawing *dr, game_drawstate *ds, const game_state *oldst
 	}
 	
 	boats_count_ships(state, NULL, NULL, ds->border);
+	for (i = 0; i < w+h; i++) {
+		if (ds->border[i] != STATUS_INVALID &&
+			state->borderclues_done[i] != (i == drag_bci)) 
+		{
+			ds->border[i] = STATUS_DONE;
+		}
+	}
 	boats_check_fleet(state, ds->fleetcount, ds->gridfs);
 	
 	/* Draw column numbers */
@@ -3748,7 +3862,8 @@ static void game_redraw(drawing *dr, game_drawstate *ds, const game_state *oldst
 		
 		tx = (x+1)*tilesize;
 		sprintf(buf, "%d", state->borderclues[x]);
-		bgcol = ds->border[x] == STATUS_INVALID ? COL_COUNT_ERROR : COL_COUNT;
+		bgcol = ds->border[x] == STATUS_INVALID ? COL_COUNT_ERROR : 
+		        ds->border[x] == STATUS_DONE ? COL_DONE : COL_COUNT;
 		
 		draw_rect(dr, tx - (tilesize/2), ty - (tilesize/2), 
 			tilesize, tilesize, COL_BACKGROUND);
@@ -3771,7 +3886,8 @@ static void game_redraw(drawing *dr, game_drawstate *ds, const game_state *oldst
 		
 		ty = (y+1)*tilesize;
 		sprintf(buf, "%d", state->borderclues[y+w]);
-		bgcol = ds->border[y+w] == STATUS_INVALID ? COL_COUNT_ERROR : COL_COUNT;
+		bgcol = ds->border[y+w] == STATUS_INVALID ? COL_COUNT_ERROR : 
+		        ds->border[y+w] == STATUS_DONE ? COL_DONE : COL_COUNT;
 		
 		draw_rect(dr, tx - (tilesize/2), ty - (tilesize/2), 
 			tilesize, tilesize, COL_BACKGROUND);
@@ -3815,7 +3931,7 @@ static void game_redraw(drawing *dr, game_drawstate *ds, const game_state *oldst
 			: state->grid[y*w+x];
 		
 		/* Check if this square is being changed by a drag */
-		if(ui->drag_ok && x >= xmin && x <= xmax &&
+		if (is_drag && x >= xmin && x <= xmax &&
 			y >= ymin && y <= ymax && state->gridclues[y*w+x] == EMPTY &&
 				(ui->drag_from == '*' || 
 					(ui->drag_from == '-' && ship == EMPTY) ||
