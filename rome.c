@@ -811,7 +811,7 @@ static int rome_naked_pairs(game_state *state)
 					continue;
 				
 				/* We found two squares. Now look for the other ones */
-				for(k = c; k < s; k++)
+				for(k = dsf_minimal(state->dsf, i); k < s; k++)
 				{
 					if(k == i || k == j || c != dsf_canonify(state->dsf, k))
 						continue;
@@ -1232,8 +1232,7 @@ static bool rome_generate_regions(game_state *state, random_state *rs)
 	/* Initialize region arrow array */
 	for(i = 0; i < w*h; i++)
 	{
-		assert(i == dsf_canonify(state->dsf, i));
-		cells[i] = state->grid[i];
+		cells[dsf_canonify(state->dsf, i)] = state->grid[i];
 	}
 	
 	shuffle(spaces, ws, sizeof(*spaces), rs);
