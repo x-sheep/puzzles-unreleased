@@ -1227,20 +1227,21 @@ static char boats_check_dsf(game_state *state, DSF *dsf, int *fleetcount)
 		
 		if(state->grid[i] == SHIP_SINGLE)
 			dsf_merge(dsf, i, end);
-		/* The canonical index always points to the first square of a boat */
-		else if(state->grid[i] == SHIP_RIGHT && state->grid[dsf_canonify(dsf, i)] == SHIP_LEFT)
+		/* dsf_minimal() always points to the first (top/left) square of a boat */
+		else if(state->grid[i] == SHIP_RIGHT && state->grid[dsf_minimal(dsf, i)] == SHIP_LEFT)
 			dsf_merge(dsf, i, end);
-		else if(state->grid[i] == SHIP_BOTTOM && state->grid[dsf_canonify(dsf, i)] == SHIP_TOP)
+		else if(state->grid[i] == SHIP_BOTTOM && state->grid[dsf_minimal(dsf, i)] == SHIP_TOP)
 			dsf_merge(dsf, i, end);
 	}
 	for(y = 0; y < h; y++)
 	for(x = 0; x < w; x++)
 	{
 		i = y*w+x;
-		if(dsf_canonify(dsf, i) == dsf_canonify(dsf, end))
+		if(dsf_equivalent(dsf, i, end))
 			continue;
 		
-		if(i == dsf_canonify(dsf, i))
+		/* Visit each unfinished boat exactly once, at its first square */
+		if(i == dsf_minimal(dsf, i))
 		{
 			if(ret != STATUS_INVALID) ret = STATUS_INCOMPLETE;
 			if(dsf_size(dsf, i) > state->fleet)
@@ -1720,7 +1721,7 @@ static int boats_solver_min_expand_dsf_forward(game_state *state, int *fleetcoun
 {
 	/*
 	 * See if a boat must expand to the right or down. There must be an edge
-	 * located at the first square occupied by this boat (the canonical index).
+	 * located at the first square occupied by this boat (the minimal index).
 	 *
 	 * Because the dsf must be reconstructed when a new ship is added,
 	 * this function can perform at most one action per call.
@@ -1737,7 +1738,7 @@ static int boats_solver_min_expand_dsf_forward(game_state *state, int *fleetcoun
 		i2 = i1 - d;
 		if(state->grid[i1] != EMPTY || dsf_canonify(dsf, i2) == end)
 			continue;
-		if(state->grid[dsf_canonify(dsf, i2)] != ship)
+		if(state->grid[dsf_minimal(dsf, i2)] != ship)
 			continue;
 		
 		s = dsf_size(dsf, i2) - 1;
@@ -1757,28 +1758,27 @@ static int boats_solver_min_expand_dsf_back(game_state *state, int *fleetcount, 
 	/*
 	 * See if a boat must expand to the left or up. If an edge pointing right
 	 * or down is found, this boat can only expand to the opposite direction.
-	 * The cell to expand to is calculated using the canonical index.
+	 * The cell to expand to is calculated using the minimal index.
 	 */
 	
 	int w = state->w;
 	int h = state->h;
 	int end = dsf_canonify(dsf, w*h);
-	int x, y, i1, c1, i2, s;
+	int x, y, i1, i2, s;
 	for(y = 0; y < h; y++)
 	for(x = 0; x < w; x++)
 	{
 		i1 = y*w+x;
 		if(state->grid[i1] != ship)
 			continue;
-		c1 = dsf_canonify(dsf, i1);
-		if(c1 == end)
+		if(dsf_canonify(dsf, i1) == end)
 			continue;
 		
 		s = dsf_size(dsf, i1) - 1;
 		if(s < 1 || s >= state->fleet || state->fleetdata[s] != fleetcount[s])
 			continue;
 		
-		i2 = c1 - d;
+		i2 = dsf_minimal(dsf, i1) - d;
 		
 		solver_printf("Boat of size %d must expand to %d,%d\n", s+1, i2%w, i2/w);
 		return boats_solver_place_ship(state, i2%w, i2/w);
@@ -2521,7 +2521,7 @@ static int boats_solve_game(game_state *state, int maxdiff)
 	{
 		runs = snewn(w*h*2, struct boats_run);
 		
-		dsf = dsf_new((w*h)+1);
+		dsf = dsf_new_min((w*h)+1);
 	}
 	
 	for(i = 0; i < w+h && !hasnoclue; i++)
@@ -2968,7 +2968,7 @@ restart:
 		tempg = state->gridclues[j];
 		state->gridclues[j] = EMPTY;
 		
-		if(boats_solve_game(state, diff) == -1)
+		if(boats_solve_game(state, diff) < 0)
 		{
 			state->gridclues[j] = tempg;
 		}
@@ -2990,7 +2990,7 @@ restart:
 			tempb = state->borderclues[j];
 			state->borderclues[j] = NO_CLUE;
 			
-			if(boats_solve_game(state, diff) == -1)
+			if(boats_solve_game(state, diff) < 0)
 			{
 				state->borderclues[j] = tempb;
 			}
