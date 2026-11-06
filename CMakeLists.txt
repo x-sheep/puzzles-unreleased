@@ -1,6 +1,6 @@
 set(abcd_crop 315x315 186x186+113+112)
 set(ascent_crop 336x336 195x195+71+23)
-set(boats_crop 256x320 166x166+80+80)
+set(boats_crop 256x328 166x166+80+80)
 set(bricks_crop 264x240 194x194+24+24)
 set(clusters_crop 192x192 162x162+14+14)
 set(crossing_crop 240x360 202x202+20+20)

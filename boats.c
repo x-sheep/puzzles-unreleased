@@ -3137,7 +3137,22 @@ struct game_drawstate {
 	int *grid;
 };
 
-#define FROMCOORD(x) ( ((x)-(ds->tilesize/2)) / ds->tilesize ) 
+/* Outer margin around all four sides */
+#define BORDER (tilesize/2)
+
+/* Margin number clue row (below grid) and fleet */
+#define GUTTER (tilesize/2)
+
+/* Starting position */
+#define FLEET_X (0.5F)
+/* Size of a single ship segment */
+#define FLEET_SIZE (0.75F)
+/* Space between two boats */
+#define FLEET_MARGIN (0.25F)
+/* Thickness of stripe through placed boats */
+#define STRIPE_SIZE (2)
+
+#define FROMCOORD(x) ( ((x) - BORDER) / ds->tilesize ) 
 
 static bool boats_validate_move(const game_state *state, int sx, int sy, int ex, int ey, char from, char to)
 {
@@ -3186,6 +3201,7 @@ static char *interpret_move(const game_state *state, game_ui *ui, const game_dra
 {
 	char buf[80];
 	char from, to;
+	int tilesize = ds->tilesize;
 	int w = state->w;
 	int h = state->h;
 	int gx = FROMCOORD(ox);
@@ -3490,7 +3506,7 @@ static game_drawstate *game_new_drawstate(drawing *dr, const game_state *state)
 	memset(ds->gridfs, 0, w*h * sizeof(int));
 	memset(ds->oldgridfs, 0, w*h * sizeof(int));
 	memset(ds->oldfleetcount, 0, fleet * sizeof(int));
-	memset(ds->oldborder, 0, w + h * sizeof(int));
+	memset(ds->oldborder, 0, (w + h) * sizeof(int));
 
 	return ds;
 }
@@ -3612,14 +3628,7 @@ static void boats_draw_collision(drawing *dr, int tilesize, int x, int y)
     draw_rect(dr, x-xext, y+yext-xext*2+1, xext*2+1, xext*2, COL_COLLISION_TEXT);
 }
 
-/* Starting position */
-#define FLEET_X (0.5F)
-/* Size of a single ship segment */
-#define FLEET_SIZE (0.75F)
-/* Space between two boats */
-#define FLEET_MARGIN (0.25F)
-
-static int boats_draw_fleet(drawing *dr, int w, int y, int fleet, 
+static int boats_draw_fleet(drawing *dr, int w, int h, int fleet,
 	int *fleetdata, int *fleetcount, int *oldfc, bool redraw, double tilesize, int print)
 {
 	/*
@@ -3629,14 +3638,19 @@ static int boats_draw_fleet(drawing *dr, int w, int y, int fleet,
 	 * If a print color is given, the drawing is not manually updated.
 	 */
 	
-	int i, j, k, bgcol;
-	float fx, ofx, nfx;
+	int i, j, k, y, bgcol;
+	float fx, ofx, nfx, fw, cy, stripeh, slope;
 	char ship;
+
+#define FX_COORD(fx) (BORDER + ((fx)-FLEET_X) * tilesize)
+#define FY_COORD(fy) (BORDER + GUTTER + (h + 1 + (fy)) * tilesize)
 	
 	fx = FLEET_X;
+	y = 0;
+	slope = (FLEET_SIZE * tilesize - STRIPE_SIZE*2)
+		/ (fleet * FLEET_SIZE * tilesize - STRIPE_SIZE*2);
 	for(i = 0; i < fleet; i++)
 	{
-		float fw;
 		fw = fleetdata[i] * (((i+1) * FLEET_SIZE) + FLEET_MARGIN);
 		
 		/* If the next batch of boats doesn't fit, move to the next line */
@@ -3661,9 +3675,9 @@ static int boats_draw_fleet(drawing *dr, int w, int y, int fleet,
 			ofx = fx;
 			if(print == -1)
 			{
-				draw_update(dr, ofx * tilesize, y * tilesize,
+				draw_update(dr, FX_COORD(ofx), FY_COORD(y),
 					nfx * tilesize, FLEET_SIZE * tilesize);
-				draw_rect(dr, ofx * tilesize, y * tilesize,
+				draw_rect(dr, FX_COORD(ofx), FY_COORD(y),
 					nfx * tilesize, FLEET_SIZE * tilesize, COL_BACKGROUND);
 			}
 			
@@ -3681,7 +3695,7 @@ static int boats_draw_fleet(drawing *dr, int w, int y, int fleet,
 				ship = (i == 0 ? SHIP_SINGLE : k == 0 ? SHIP_LEFT :
 					k == i ? SHIP_RIGHT : SHIP_CENTER);
 				
-				boats_draw_ship(dr, fx * tilesize, y * tilesize, 
+				boats_draw_ship(dr, FX_COORD(fx), FY_COORD(y), 
 					tilesize * FLEET_SIZE, ship, bgcol);
 				
 				fx += FLEET_SIZE;
@@ -3691,10 +3705,13 @@ static int boats_draw_fleet(drawing *dr, int w, int y, int fleet,
 			if(print == -1 && fleetcount && j < fleetcount[i])
 			{
 				bgcol = (fleetdata[i] >= fleetcount[i] ? COL_SHIP_FLEET_STRIPE : COL_COUNT_ERROR);
-				
-				draw_thick_line(dr, 2,
-					ofx * tilesize + 2, (y + FLEET_SIZE) * tilesize - 2,
-					fx * tilesize - 2, y * tilesize + 2, bgcol);
+				/* Use same slope stripes for all boat sizes */
+				cy = FY_COORD(y) + (FLEET_SIZE * tilesize / 2);
+				stripeh = slope * ((i+1) * FLEET_SIZE * tilesize - STRIPE_SIZE*2);
+
+				draw_thick_line(dr, STRIPE_SIZE,
+					FX_COORD(ofx) + STRIPE_SIZE, cy + stripeh/2,
+					FX_COORD(fx) - STRIPE_SIZE, cy - stripeh/2, bgcol);
 			}
 			
 			fx += FLEET_MARGIN;
@@ -3731,22 +3748,24 @@ static void game_redraw(drawing *dr, game_drawstate *ds, const game_state *oldst
 	
 	if(redraw)
 	{
-		draw_rect(dr, 0, 0, (w+2)*tilesize, (h+2)*tilesize + ds->fleeth, COL_BACKGROUND);
-		draw_update(dr, 0, 0, (w+2)*tilesize, (h+2)*tilesize + ds->fleeth);
+		int total_w = 2*BORDER + (w+1)*tilesize;
+		int total_h = 2*BORDER + GUTTER + (h+1)*tilesize + ds->fleeth;
+		draw_rect(dr, 0, 0, total_w, total_h, COL_BACKGROUND);
+		draw_update(dr, 0, 0, total_w, total_h);
 	}
 	
 	boats_count_ships(state, NULL, NULL, ds->border);
 	boats_check_fleet(state, ds->fleetcount, ds->gridfs);
 	
 	/* Draw column numbers */
-	ty = (h+1)*tilesize + (0.5 * tilesize);
+	ty = BORDER + (h+1)*tilesize;
 	for(x = 0; x < w; x++)
 	{
 		if(state->borderclues[x] == NO_CLUE || 
 			(!redraw && (ds->border[x] == ds->oldborder[x])))
 			continue;
 		
-		tx = (x+1)*tilesize;
+		tx = BORDER + x*tilesize + (tilesize/2);
 		sprintf(buf, "%d", state->borderclues[x]);
 		bgcol = ds->border[x] == STATUS_INVALID ? COL_COUNT_ERROR : COL_COUNT;
 		
@@ -3762,14 +3781,14 @@ static void game_redraw(drawing *dr, game_drawstate *ds, const game_state *oldst
 	}
 	
 	/* Draw row numbers */
-	tx = (w+1)*tilesize + (0.5 * tilesize);
+	tx = BORDER + (w+1)*tilesize;
 	for(y = 0; y < h; y++)
 	{
 		if(state->borderclues[y+w] == NO_CLUE || 
 			(!redraw && (ds->border[y+w] == ds->oldborder[y+w])))
 			continue;
 		
-		ty = (y+1)*tilesize;
+		ty = BORDER + y*tilesize + (tilesize/2);
 		sprintf(buf, "%d", state->borderclues[y+w]);
 		bgcol = ds->border[y+w] == STATUS_INVALID ? COL_COUNT_ERROR : COL_COUNT;
 		
@@ -3803,8 +3822,8 @@ static void game_redraw(drawing *dr, game_drawstate *ds, const game_state *oldst
 	for(x = 0; x < w; x++)
 	for(y = 0; y < h; y++)
 	{
-		tx = x*tilesize + (0.5 * tilesize);
-		ty = y*tilesize + (0.5 * tilesize);
+		tx = BORDER + x*tilesize;
+		ty = BORDER + y*tilesize;
 		
 		if(flashtime == 0 && ui->cursor && ui->cx == x && ui->cy == y)
 			ds->gridfs[y*w+x] |= FD_CURSOR;
@@ -3881,13 +3900,14 @@ static void game_redraw(drawing *dr, game_drawstate *ds, const game_state *oldst
 	{
 		if(ds->gridfs[y*w+x] & FE_COLLISION)
 		{
-			boats_draw_collision(dr, tilesize, (x+1.5F)*tilesize,
-			(y+1.5F)*tilesize);
+			boats_draw_collision(dr, tilesize,
+				BORDER + (x+1)*tilesize,
+				BORDER + (y+1)*tilesize);
 		}
 	}
 	
 	/* Draw fleet */
-	boats_draw_fleet(dr, w, h+2, state->fleet, state->fleetdata, 
+	boats_draw_fleet(dr, w, h, state->fleet, state->fleetdata, 
 		ds->fleetcount, ds->oldfleetcount, redraw, tilesize, -1);
 	
 	ds->redraw = false;
@@ -3901,9 +3921,10 @@ static void game_get_cursor_location(const game_ui *ui,
                                      int *x, int *y, int *w, int *h)
 {
 	if(ui->cursor) {
-		*x = (ui->cx+0.5) * ds->tilesize;
-		*y = (ui->cy+0.5) * ds->tilesize;
-		*w = *h = ds->tilesize;
+		int tilesize = ds->tilesize;
+		*x = BORDER + ui->cx * tilesize;
+		*y = BORDER + ui->cy * tilesize;
+		*w = *h = tilesize;
 	}
 }
 
@@ -3911,7 +3932,7 @@ static void game_set_size(drawing *dr, game_drawstate *ds,
 			  const game_params *params, int tilesize)
 {
 	ds->tilesize = tilesize;
-	ds->fleeth = boats_draw_fleet(NULL, params->w, 0, params->fleet,
+	ds->fleeth = boats_draw_fleet(NULL, params->w, params->h, params->fleet,
 		params->fleetdata, NULL, NULL, false, tilesize, -1) * tilesize;
 	ds->redraw = true;
 }
@@ -3920,12 +3941,13 @@ static void game_compute_size(const game_params *params, int tilesize,
                               const game_ui *ui, int *x, int *y)
 {
 	int fh;
-	*x = (params->w+2) * tilesize;
+	*x = 2*BORDER + (params->w+1) * tilesize;
 	
-	fh = boats_draw_fleet(NULL, params->w, 0, params->fleet, params->fleetdata,
+	fh = boats_draw_fleet(NULL, params->w, params->h, params->fleet, params->fleetdata,
 		NULL, NULL, false, tilesize, -1);
 	
-	*y = (params->h+2+fh) * tilesize;
+	*y = 2*BORDER + GUTTER + (params->h+1+fh) * tilesize;
+	*y -= (int)((1.0-FLEET_SIZE) * tilesize); /* fleet's own bottom padding */
 }
 
 static float game_anim_length(const game_state *oldstate, const game_state *newstate,
@@ -3981,8 +4003,8 @@ static void game_print(drawing *dr, const game_state *state, const game_ui *ui,
 	for(y = 0; y < h; y++)
 	for(x = 0; x < w; x++)
 	{
-		tx = x * tilesize + (tilesize / 2);
-		ty = y * tilesize + (tilesize / 2);
+		tx = BORDER + x * tilesize;
+		ty = BORDER + y * tilesize;
 		
 		draw_rect_outline(dr, tx, ty, tilesize+1, tilesize+1, ink);
 		
@@ -4009,13 +4031,13 @@ static void game_print(drawing *dr, const game_state *state, const game_ui *ui,
 	}
 	
 	/* Row numbers */
-	tx = (w+1)*tilesize + (0.5 * tilesize);
+	tx = BORDER + (w+1)*tilesize;
 	for(y = 0; y < h; y++)
 	{
 		if(state->borderclues[y+w] == NO_CLUE)
 			continue;
 		
-		ty = (y+1)*tilesize;
+		ty = BORDER + y*tilesize + (tilesize/2);
 		sprintf(buf, "%d", state->borderclues[y+w]);
 		
 		draw_text(dr, tx, ty,
@@ -4024,13 +4046,13 @@ static void game_print(drawing *dr, const game_state *state, const game_ui *ui,
 	}
 	
 	/* Column numbers */
-	ty = (h+1)*tilesize + (0.5 * tilesize);
+	ty = BORDER + (h+1)*tilesize;
 	for(x = 0; x < w; x++)
 	{
 		if(state->borderclues[x] == NO_CLUE)
 			continue;
 		
-		tx = (x+1)*tilesize;
+		tx = BORDER + x*tilesize + (tilesize/2);
 		sprintf(buf, "%d", state->borderclues[x]);
 		
 		draw_text(dr, tx, ty,
@@ -4040,7 +4062,7 @@ static void game_print(drawing *dr, const game_state *state, const game_ui *ui,
 	
 	if(!solution)
 	{
-		boats_draw_fleet(dr, w, h+2, state->fleet, state->fleetdata, NULL,
+		boats_draw_fleet(dr, w, h, state->fleet, state->fleetdata, NULL,
 			NULL, false, tilesize, ink);
 	}
 }
